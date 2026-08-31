@@ -1,0 +1,33 @@
+name: Update CELCAT calendar
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate ICS file
+        run: python scripts/update_calendar.py --output calendar.ics
+
+      - name: Commit updates if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add calendar.ics
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update generated calendar.ics"
+          git push
