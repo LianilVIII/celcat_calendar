@@ -113,6 +113,22 @@ def _description_lines(raw_description: str) -> list[str]:
     return [html.unescape(line).strip() for line in text.split("\n") if line.strip()]
 
 
+def filter_events(
+    events: list[dict[str, Any]], excluded_modules: list[str]
+) -> list[dict[str, Any]]:
+    filters = [name.strip().lower() for name in excluded_modules if name.strip()]
+    if not filters:
+        return events
+
+    filtered_events: list[dict[str, Any]] = []
+    for event in events:
+        modules = event.get("modules") or []
+        if any(module and module.strip().lower() in filters for module in modules):
+            continue
+        filtered_events.append(event)
+    return filtered_events
+
+
 def build_ics(events: list[dict[str, Any]], group: str) -> str:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     lines = [
@@ -178,16 +194,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start", default=default_start)
     parser.add_argument("--end", default=default_end)
     parser.add_argument("--output", default="calendar.ics")
+    parser.add_argument(
+        "--exclude-module",
+        action="append",
+        default=[],
+        help="Exclude events whose module name matches this value exactly. Repeat to exclude multiple modules.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     events = fetch_events(args.group, args.start, args.end)
-    content = build_ics(events, args.group)
+    filtered_events = filter_events(events, args.exclude_module)
+    content = build_ics(filtered_events, args.group)
     output = Path(args.output)
     output.write_text(content, encoding="utf-8", newline="")
-    print(f"Wrote {output} with {len(events)} events")
+    print(f"Wrote {output} with {len(filtered_events)} events (from {len(events)} fetched)")
 
 
 if __name__ == "__main__":
