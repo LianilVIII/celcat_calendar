@@ -21,7 +21,7 @@ jobs:
           python-version: "3.12"
 
       - name: Generate ICS file
-        run: python scripts/update_calendar.py --output calendar.ics
+        run: python scripts/update_calendar.py --output calendar.ics --exclude-module "4TIN914U Logic and languages"
 
       - name: Commit updates if changed
         run: |

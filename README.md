@@ -25,8 +25,11 @@ python3 /home/runner/work/celcat_calendar/celcat_calendar/scripts/update_calenda
   --group "4TVL904S M2 Algorithms, Models and Verification" \
   --start 2026-09-01 \
   --end 2027-07-31 \
+  --exclude-module "4TIN914U Logic and languages" \
   --output /home/runner/work/celcat_calendar/celcat_calendar/calendar.ics
 ```
+
+To exclude several modules, repeat `--exclude-module`.
 
 ## Automatic update
 
