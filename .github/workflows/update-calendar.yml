@@ -3,14 +3,22 @@ name: Update CELCAT calendar
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 4 * * *"
+    # Every 15 minutes (GitHub may delay scheduled runs by a few minutes).
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: write
 
+concurrency:
+  group: update-calendar
+  cancel-in-progress: false
+
 jobs:
   update-calendar:
     runs-on: ubuntu-latest
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,7 +29,17 @@ jobs:
           python-version: "3.12"
 
       - name: Generate ICS file
-        run: python scripts/update_calendar.py --output calendar.ics --exclude-module "4TIN914U Logic and languages"
+        run: >
+          python scripts/update_calendar.py
+          --output calendar.ics
+          --json-output "$RUNNER_TEMP/events.json"
+          --exclude-module "4TIN914U Logic and languages"
+
+      - name: Sync Google Calendar
+        if: ${{ env.GOOGLE_SERVICE_ACCOUNT_JSON != '' && env.GOOGLE_CALENDAR_ID != '' }}
+        run: |
+          pip install --quiet google-api-python-client google-auth
+          python scripts/sync_google_calendar.py --events "$RUNNER_TEMP/events.json"
 
       - name: Commit updates if changed
         run: |
