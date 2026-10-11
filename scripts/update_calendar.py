@@ -129,19 +129,9 @@ def filter_events(
     return filtered_events
 
 
-def build_ics(events: list[dict[str, Any]], group: str) -> str:
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    lines = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//celcat_calendar//EN",
-        "CALSCALE:GREGORIAN",
-        "METHOD:PUBLISH",
-        f"X-WR-CALNAME:{_escape_ics(group)}",
-        "X-WR-TIMEZONE:Europe/Paris",
-        VTIMEZONE,
-    ]
-
+def normalize_events(events: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Convert raw CELCAT events into simple dicts shared by the ICS and Google outputs."""
+    normalized: list[dict[str, str]] = []
     for index, event in enumerate(events):
         start = event.get("start")
         if not start:
@@ -157,27 +147,55 @@ def build_ics(events: list[dict[str, Any]], group: str) -> str:
         if category:
             summary = f"{summary} - {category}"
 
-        location = ", ".join(site.strip() for site in sites if site)
-        uid = str(event.get("id") or f"{index}-{start}")
+        normalized.append(
+            {
+                "uid": f"{event.get('id') or f'{index}-{start}'}@celcat.u-bordeaux.fr",
+                "start": start[:19],
+                "end": end[:19],
+                "summary": summary,
+                "location": ", ".join(site.strip() for site in sites if site),
+                "description": "\n".join(description_lines),
+            }
+        )
+    return normalized
 
+
+def build_ics(events: list[dict[str, str]], group: str) -> str:
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//celcat_calendar//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{_escape_ics(group)}",
+        "X-WR-TIMEZONE:Europe/Paris",
+        VTIMEZONE,
+    ]
+
+    for event in events:
         lines.extend(
             [
                 "BEGIN:VEVENT",
-                _fold_ics(f"UID:{_escape_ics(uid)}@celcat.u-bordeaux.fr"),
+                _fold_ics(f"UID:{_escape_ics(event['uid'])}"),
                 f"DTSTAMP:{stamp}",
-                f"DTSTART;TZID=Europe/Paris:{_to_ics_datetime(start)}",
-                f"DTEND;TZID=Europe/Paris:{_to_ics_datetime(end)}",
-                _fold_ics(f"SUMMARY:{_escape_ics(summary)}"),
+                f"DTSTART;TZID=Europe/Paris:{_to_ics_datetime(event['start'])}",
+                f"DTEND;TZID=Europe/Paris:{_to_ics_datetime(event['end'])}",
+                _fold_ics(f"SUMMARY:{_escape_ics(event['summary'])}"),
             ]
         )
-        if location:
-            lines.append(_fold_ics(f"LOCATION:{_escape_ics(location)}"))
-        if description_lines:
-            lines.append(_fold_ics(f"DESCRIPTION:{_escape_ics(chr(10).join(description_lines))}"))
+        if event["location"]:
+            lines.append(_fold_ics(f"LOCATION:{_escape_ics(event['location'])}"))
+        if event["description"]:
+            lines.append(_fold_ics(f"DESCRIPTION:{_escape_ics(event['description'])}"))
         lines.append("END:VEVENT")
 
     lines.append("END:VCALENDAR")
     return "\r\n".join(lines) + "\r\n"
+
+
+def _without_dtstamp(content: str) -> str:
+    return re.sub(r"^DTSTAMP:.*$", "", content, flags=re.MULTILINE)
 
 
 def default_dates() -> tuple[str, str]:
@@ -200,17 +218,27 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Exclude events whose module name matches this value exactly. Repeat to exclude multiple modules.",
     )
+    parser.add_argument(
+        "--json-output",
+        help="Also write the normalized events as JSON (used by sync_google_calendar.py).",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     events = fetch_events(args.group, args.start, args.end)
-    filtered_events = filter_events(events, args.exclude_module)
+    filtered_events = normalize_events(filter_events(events, args.exclude_module))
     content = build_ics(filtered_events, args.group)
     output = Path(args.output)
-    output.write_text(content, encoding="utf-8", newline="")
-    print(f"Wrote {output} with {len(filtered_events)} events (from {len(events)} fetched)")
+    if output.exists() and _without_dtstamp(output.read_bytes().decode("utf-8")) == _without_dtstamp(content):
+        print(f"{output} unchanged ({len(filtered_events)} events)")
+    else:
+        output.write_text(content, encoding="utf-8", newline="")
+        print(f"Wrote {output} with {len(filtered_events)} events (from {len(events)} fetched)")
+
+    if args.json_output:
+        Path(args.json_output).write_text(json.dumps(filtered_events, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
